@@ -1,0 +1,3614 @@
+
+. Demo
+
+~html~
+<div style='display:flex;'>
+    <textarea style='width:50%;min-height:300px;' id='textarea-input' placeholder='Paste your code here'></textarea>
+    <div      style='width:50%;min-height:300px;' id='pre-output'></div>
+</div>
+
+<script type='module'>
+
+import { Tokenizer, PushbackReader } from '/resources/lib/js/libtokenizer.js';
+
+document.getElementById( "textarea-input" ).oninput
+=
+function( event )
+{
+    var textarea  = event.target;
+    var reader    = new PushbackReader( textarea.value );
+    var tokenizer = new Tokenizer( reader );
+    var output    = document.getElementById( "pre-output" );
+        output.innerHTML = "";
+
+    while ( tokenizer.hasMoreTokens() )
+    {
+        var token = tokenizer.nextToken();
+
+        if ( "" != token.trim() )
+        {
+            var span = document.createElement( "SPAN" );
+                span.innerHTML = token;
+
+            output.appendChild( span );
+        }
+    }
+
+    return false;
+}
+
+</script>
+
+<script>
+
+function XXX()
+{
+    var src = document.getElementById( "script-source" );
+    var pre = document.getElementById(    "pre-source" );
+    var htm = src.innerHTML;
+        htm = htm.replace( /{{/g, "&lt;" );
+        htm = htm.replace( /}}/g, "&gt;" );
+
+    pre.innerHTML = htm;
+
+}
+
+</script>
+~
+. Tokenizer
+
+..   Example Usage
+
+~!src/c/testTokenizer.c~
+#include <stdlib.h>
+#include <stdio.h>
+
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/Tokenizer.h"
+#include "libtokenizer/Term.h"
+
+void printToken( Token* self, void* stream );
+
+int main( int argc, char** argv )
+{
+    const char* filepath = "./test/Sample.txt";
+
+    PushbackReader* p = PushbackReader_new( filepath );
+    Tokenizer*      t = Tokenizer_new( p );
+
+    while ( Tokenizer_hasMoreTokens( t ) )
+    {
+        Token* token = Tokenizer_nextToken( t );
+        {
+            printToken( token, stdout );
+        }
+        Token_free( token );
+    }
+
+    Tokenizer_free     ( t );
+    PushbackReader_free( p );
+
+    if ( Runtime_Allocated() )
+    {
+        fprintf( stderr, "Memory leak: %i\n", Runtime_Allocated() );
+    }
+}
+
+void printToken( Token* self, void* stream )
+{
+    switch ( self->group->groupType )
+    {
+    case OPEN:
+    case CLOSE:
+    case SYMBOLIC:
+        switch( self->type )
+        {
+        case COMMENT:
+        case LINECOMMENT:
+            Term_Colour( stream, COLOR_COMMENT );
+            break;
+
+        default:
+            Term_Colour( stream, COLOR_BOLD );
+        }
+        break;
+
+    case STRING:
+        Term_Colour( stream, COLOR_STRING );
+        break;
+
+    case CHAR:
+        Term_Colour( stream, COLOR_CHAR );
+        break;
+
+    case ALPHANUMERIC:
+        switch ( self->type )
+        {
+        case PRIMITIVE:
+            Term_Colour( stream, COLOR_TYPE );
+            break;
+
+        case CLASS:
+        case KEYWORD:
+        case MODIFIER:
+            Term_Colour( stream, COLOR_MODIFIER );
+            break;
+
+        case WORD:
+            Term_Colour( stream, COLOR_NORMAL );
+            break;
+
+        default:
+            Term_Colour( stream, COLOR_LIGHT );
+        }
+        break;
+
+    case VALUE:
+        Term_Colour( stream, COLOR_VALUE );
+        break;        
+
+    case UNKNOWN_GROUP:
+        Term_Colour( stream, COLOR_UNKNOWN );
+        break;        
+
+    default:
+        Term_Colour( stream, COLOR_NORMAL );
+    }
+    fprintf( stream, "%s", self->content );
+    Term_Colour( stream, COLOR_NORMAL );
+}
+~
+
+~!src/js/example/example.js~
+import { Tokenizer, PushbackReader } from '/resources/lib/js/libtokenizer.js';
+
+document.getElementById( "textarea-input" ).oninput
+=
+function( event )
+{
+    var textarea  = event.target;
+    var reader    = new PushbackReader( textarea.value );
+    var tokenizer = new Tokenizer( reader );
+    var output    = document.getElementById( "pre-output" );
+        output.innerHTML = "";
+
+    while ( tokenizer.hasMoreTokens() )
+    {
+        var token = tokenizer.nextToken();
+
+        if ( "" != token.trim() )
+        {
+            var span = document.createElement( "SPAN" );
+                span.innerHTML = token;
+
+            output.appendChild( span );
+        }
+    }
+
+    return false;
+}
+~
+
+
+
+~!src/nodejs/example/testTokenizer.node.js~
+const fs           = require( 'fs' );
+const libtokenizer = require( '/Users/daniel/Documents/Dropbox/Dropspace-Sites/_CA/com.libtokenizer/_gen/lib/js/libtokenizer' );
+
+function main()
+{
+    var content = fs.readFile( './test/Sample.txt', "ascii", mainHandler );
+}
+
+function mainHandler( error, content )
+{
+    if ( error )
+    {
+        console.error( error );
+        return;
+    }
+    else
+    {
+        console.log( content );
+
+        if ( true )
+        {
+            var reader    = new libtokenizer.PushbackReader( content );
+            var tokenizer = new libtokenizer.Tokenizer     ( reader  );
+
+            while( tokenizer.hasMoreTokens() )
+            {
+                token = tokenizer.nextToken();
+
+                console.log( token );
+            }
+        }
+    }
+}
+
+main();
+~
+
+.. Class Definitions
+
+~!src/ix/Tokenizer.ix~
+public class
+{
+    @reader : PushbackReader*
+    @queue  : Queue<Token*>
+
+    public method new( reader: PushbackReader* ) : PushbackReader*
+    public method nextToken()                    : Token*
+    public method hasMoreTokens()                : boolean
+}
+~
+
+~!include/libtokenizer/Tokenizer.h~
+#ifndef LIBTOKENIZER_TOKENIZER_H
+#define LIBTOKENIZER_TOKENIZER_H
+
+#include "libtokenizer/Base.h"
+#include "libtokenizer/PushbackReader.h"
+#include "libtokenizer/Queue.h"
+#include "libtokenizer/Token.h"
+#include "libtokenizer/TokenGroup.h"
+
+typedef struct _Tokenizer
+{
+    PushbackReader* reader;
+    Queue*          queue;
+
+} Tokenizer;
+
+Tokenizer* Tokenizer_new          ( PushbackReader* reader );
+Tokenizer* Tokenizer_free         ( Tokenizer*      self   );
+Token*     Tokenizer_nextToken    ( Tokenizer*      self   );
+bool       Tokenizer_hasMoreTokens( Tokenizer*      self   ); 
+
+#endif
+~
+
+!
+~!src/c/Tokenizer.c~
+#include <stdlib.h>
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/StringBuffer.h"
+#include "libtokenizer/Tokenizer.h"
+#include "libtokenizer/TokenGroup.h"
+
+static void   primeQueue( Tokenizer* self );
+static Token*       next( Tokenizer* self );
+~
+!
+
+~!src/js/Tokenizer.js~
+export function Tokenizer( reader )
+{
+    this.reader = reader;
+    this.queue  = new Queue();
+
+    this.primeQueue();
+}
+~
+
+~!src/java/Tokenizer.java~
+import java.io.*;
+
+public class Tokenizer {
+
+InputStream input = null;
+Token       token = null;
+~
+
+!
+~src/java/Tokenizer.java~
+}
+~
+!
+
+.. Constructor
+
+~src/ix/Tokenizer.ix~
+public new( reader : PushbackReader )
+{
+    @reader = reader
+    @queue  = new Queue<Token>()
+
+    primeQueue();
+}
+~
+
+~src/c/Tokenizer.c~
+Tokenizer* Tokenizer_new( PushbackReader* reader )
+{
+    Tokenizer* self = Runtime_Calloc( 1, sizeof( Tokenizer ) );
+
+    if ( self )
+    {   
+        self->reader = reader;
+        self->queue  = Queue_new();
+
+        primeQueue( self );
+    }
+    return self;
+}
+~
+
+~!src/js/Tokenizer.js~
+export function Tokenizer( reader )
+{
+    this.reader = reader;
+    this.queue  = new Queue();
+
+    this.primeQueue();
+}
+~
+
+!
+~
+var libtokenizer
+=
+{
+    exports:
+    {
+        Tokenizer: Tokenizer
+    }
+}
+~
+!
+
+.. Deconstructor
+
+The Ix \'delete\' method isn\'t technically required, but is provided here as an example.
+Typically, an Ix destructor would be used if resources need to be freed.
+
+~src/ix/Tokenizer.ix~
+public delete()
+{
+    while ( (var tmp: Token* = @queue.removeHead()) )
+    {
+        delete tmp
+    }
+}
+~
+
+~src/c/Tokenizer.c~
+Tokenizer* Tokenizer_free( Tokenizer* self )
+{
+    if ( self )
+    {
+        if ( 1 )
+        {
+            Token* tmp;
+
+            while ( (tmp = Queue_removeHead( self->queue )) )
+            {
+                Token_free( tmp );
+            }
+        }
+
+        self->reader = 0;
+
+        if ( self->queue ) self->queue = Queue_free( self->queue );
+
+        Runtime_Free( self );
+    }
+    return 0;
+}
+~
+
+.. Tokenizer.nextToken
+
+'nextToken' returns the next available token; otherwise null/undefined.
+
+In reality,
+'primeQueue' is called to supply the token queue with another token,
+then the head token of the queue is returned, if available.
+
+~src/ix/Tokenizer.ix~
+public nextToken()
+{
+    primeQueue();
+
+    if ( @queue.length > 0 )
+    {
+        return @queue.removeFirst()
+    }
+    else
+    {
+        return null;
+    }
+}
+~
+
+~src/c/Tokenizer.c~
+Token* Tokenizer_nextToken( Tokenizer* self )
+{
+    primeQueue( self );
+
+    if ( Queue_getLength( self->queue ) > 0 )
+    {
+        return (Token*) Queue_removeHead( self->queue );
+    }
+    else
+    {
+        return NULL;
+    }
+}
+~
+
+~src/js/Tokenizer.js~
+Tokenizer.prototype.nextToken
+=
+function()
+{
+    this.primeQueue();
+
+    if (this.queue.getLength() > 0 )
+    {
+        return this.queue.removeHead();
+    }
+    else
+    {
+        return undefined;
+    }
+}
+~
+
+.. Tokenizer.hasMoreTokens
+
+Returns true if there are more tokens available; otherwise false.
+
+As both the constructor and 'nextToken' call 'primeQueue'
+to ensure that the 'queue' always has a token to return, if available;
+there are no more tokens left if the queue is found to be empty.
+
+~src/ix/Tokenizer.ix~
+public hasMoreTokens() : boolean
+{
+    return (@queue.getLength() > 0);
+}
+~
+
+~src/c/Tokenizer.c~
+bool Tokenizer_hasMoreTokens( Tokenizer* self )
+{
+    return (Queue_getLength( self->queue ) > 0);
+}
+~
+
+~src/js/Tokenizer.js~
+Tokenizer.prototype.hasMoreTokens
+=
+function()
+{
+    return (this.queue.getLength() > 0);
+}
+~
+
+.. Tokenizer.primeQueue
+
+The 'primeQueue' method simply calls 'next' to retrieve the next token,
+then adds it to the end of the queue if one is able to be retrieved.
+
+~src/ix/Tokenizer.ix~
+private primeQueue()
+{
+    if ( var token = next() )
+    {
+        @queue.addTail( token )
+    }
+}
+~
+
+~src/c/Tokenizer.c~
+static void primeQueue( Tokenizer* self )
+{
+    Token* token = NULL;
+
+    if ( (token = next( self )) )
+    {
+        Queue_addTail( self->queue, token );
+    }
+}
+~
+
+~src/js/Tokenizer.js~
+Tokenizer.prototype.primeQueue
+=
+function()
+{
+    var token;
+
+    if ( (token = this.next()) )
+    {
+        this.queue.addTail( token );
+    }
+}
+~
+
+.. Tokenizer.next
+
+The 'next' method reads characters from the PushbackReader - 'reader' -
+and appends them to an initially empty string buffer.
+The method determines the token group using the first character,
+and then calls the TokenGroup.matches method for each additional character,
+which decides when the character can be appended to the previous characters to form a token.
+
+The method must also handle the following special cases:
+
+1)  When the first character indicates an escape code (&#92;).
+2)  When the first character indicates the start of a string (\").
+3)  When the first character indicates the start of a character constant (\').
+
+Usually, the last action the 'next' method will do is decide that the character most recently read
+does not belong in the current token and will push it back into the reader.
+For characters and strings, however, they will read the terminating (\") or (\') and will exit the loop.
+
+~src/ix/Tokenizer.ix~
+private next() : string
+{
+    var token: Token*
+
+    if ( var ch = @reader.read() )
+    {
+        var sb    = new StringBuffer()
+        var group = new TokenGroup( ch )
+
+        sb.append( ch )
+
+        while ( var ch2 = @reader.read() )
+        {
+            if ( EnumGroupType.ESCAPE == group.groupType )
+            {
+                sb  = sb.append( ch2 )
+                ch2 = @reader.read()
+                break;
+            }
+            else
+            if ( group.matches( ch2 ) )
+            {
+                if ( '\\' == ch2 )
+                {
+                    sb  = sb.append( ch2 )
+                    ch2 = @reader.read()
+                    sb  = sb.append( ch2 )
+                }
+                else
+                {
+                    sb = sb.append( ch2 )
+                }
+            }
+            else
+            if ( EnumGroupType.STRING == group.groupType )
+            {
+                sb = sb.append( ch2 )
+                c2 = @reader.read()
+                break
+            }
+            else
+            if ( EnumGroupType.CHAR == group.groupType )
+            {
+                sb = sb.append( ch2 )
+                c2 = @reader.read()
+                break
+            }
+            else
+            {
+                break
+            }
+        }
+
+        if ( c2 )
+        {
+            @reader.pushback()
+        }
+
+        if ( !sb.isEmpty()  )
+        {
+            token = new Token( this, sb.getContent(), group );
+        }
+    }
+    return token;
+}
+~
+
+~src/c/Tokenizer.c~
+static Token* next( Tokenizer* self )
+{
+    Token* token = NULL;
+    int    ch    = 0;
+    int    ch2   = 0;
+
+    if ( (ch = PushbackReader_read( self->reader )) )
+    {
+        StringBuffer*  sb = StringBuffer_new();
+        TokenGroup* group = TokenGroup_new( ch );
+
+        sb = StringBuffer_append_char( sb, ch );
+
+        while ( (ch2 = PushbackReader_read( self->reader )) )
+        {
+            if ( ESCAPE == group->groupType )
+            {
+                sb  = StringBuffer_append_char( sb, ch2 );
+                ch2 = PushbackReader_read( self->reader );
+                break;
+            }
+            else
+            if ( TokenGroup_matches( group, ch2 ) )
+            {
+                if ( '\\' == ch2 )
+                {
+                    sb  = StringBuffer_append_char( sb, ch2 );
+                    ch2 = PushbackReader_read( self->reader );
+                    sb  = StringBuffer_append_char( sb, ch2 );
+                }
+                else
+                {
+                    sb  = StringBuffer_append_char( sb, ch2 );
+                }
+            }
+            else
+            if ( STRING == group->groupType )
+            {
+                sb = StringBuffer_append_char( sb, ch2 );
+                ch2 = PushbackReader_read( self->reader );
+                break;
+            }
+            else
+            if ( CHAR == group->groupType )
+            {
+                sb = StringBuffer_append_char( sb, ch2 );
+                ch2 = PushbackReader_read( self->reader );
+                break;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if ( ch2 )
+        {
+            PushbackReader_pushback( self->reader );
+        }
+
+        if ( !StringBuffer_isEmpty( sb ) )
+        {
+            token = Token_new( self, sb->content, group );
+        }
+
+        StringBuffer_free( sb );
+        TokenGroup_free( group );
+    }
+    return token;
+}
+~
+
+~src/js/Tokenizer.js~
+Tokenizer.prototype.next
+=
+function()
+{
+    var token = "";
+    var ch;
+    var ch2;
+
+    if ( (ch = this.reader.read()) )
+    {
+        var group = new TokenGroup( ch );
+
+        token = token + ch;
+
+        while ( (ch2 = this.reader.read()) )
+        {
+            if ( group.matches( ch2 ) )
+            {
+                token = token + ch2;
+            }
+            else
+            if ( "STRING" == group.groupType )
+            {
+                token = token + ch2;
+                this.reader.read();
+                break;
+            }
+            else
+            if ( "CHAR" == group.groupType )
+            {
+                token = token + ch2;
+                this.reader.read();
+                break;
+            }
+            else
+            {
+                break;
+            }
+        }
+        this.reader.pushback();
+    }
+    return ("" == token) ? undefined : token;
+}
+~
+
+. Token
+
+.. Example
+
+~!src/c/testToken.c~
+#include <stdio.h>
+#include "libtokenizer/Token.h"
+#include "libtokenizer/TokenGroup.h"
+
+int main( int argc, char** argv )
+{
+    Token* token = Token_new( 0, "String", TokenGroup_new( 'A' ) );
+
+    fprintf( stdout, "%s\n", Token_getContent   ( token ) );
+    //fprintf( stdout, "%i\n", Token_getTokenGroup( token ) );
+    fprintf( stdout, "%i\n", Token_getTokenType ( token ) );
+
+    Token_free( token );
+}
+~
+
+.. Class Definitions
+
+~!src/ix/Token.ix~
+public class
+{
+    @t       : Tokenizer&;
+    @content : string*;
+    @length  : integer;
+    @group   : TokenGroup;
+    @type    : EnumTokenType;
+}
+~
+
+~!include/libtokenizer/Token.h~
+#ifndef LIBTOKENIZER_TOKEN_H
+#define LIBTOKENIZER_TOKEN_H
+
+#include "TokenGroup.h"
+#include "EnumTokenType.h"
+
+typedef struct _Tokenizer Tokenizer;
+
+typedef struct _Token
+{
+    Tokenizer*    t;
+    char*         content;
+    int           length;
+    TokenGroup*   group;
+    EnumTokenType type;
+
+} Token;
+
+Token*        Token_new                      ( Tokenizer* t, const char* content, TokenGroup* aGroup );
+Token*        Token_free                     ( Token* this );
+const char*   Token_getContent               ( Token* this );
+TokenGroup*   Token_getTokenGroup            ( Token* this );
+EnumTokenType Token_getTokenType             ( Token* this );
+void          Token_print                    ( Token* this, void* stream );
+
+#endif
+~
+
+~!src/js/Token.js~
+function Token( t, content, length, aGroup )
+{
+    this.t       = t;
+    this.content = content;
+    this.length  = content.length;
+    this.group   = aGroup;
+    this.type    = Token.DetermineTokenType( aGroup, content );
+}
+~
+
+~!src/java/Token.java~
+public class Token {
+
+Tokenizer     t;
+String        content;
+int           length;
+TokenGroup    group;
+EnumTokenType type;
+~
+
+.. Constructor
+
+~src/ix/Token.ix~
+public new( t: Tokenizer&, content: string&, aGroup: TokenGroup )
+{
+    @t       = t;
+    @content = content.clone();
+    @length  = content.length;
+    @group   = aGroup;
+    @type    = DetermineTokenType( aGroup, @content );
+}
+~
+
+~!src/c/Token.c~
+#include <stdlib.h>
+#include <stdio.h>
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/String.h"
+#include "libtokenizer/Term.h"
+#include "libtokenizer/Token.h"
+
+EnumTokenType   Token_DetermineTokenType       ( TokenGroup* group, const char* content );
+EnumTokenType   Token_DetermineWhitespaceType  ( const char* content );
+EnumTokenType   Token_DetermineSymbolicType    ( const char* content );
+EnumTokenType   Token_DetermineAlphanumericType( const char* content );
+EnumTokenType   Token_DetermineOpenType        ( const char* content );
+EnumTokenType   Token_DetermineCloseType       ( const char* content );
+
+Token* Token_new( Tokenizer* t, const char* content, TokenGroup* aGroup )
+{
+    Token* self = Runtime_Calloc( 1, sizeof(Token) );
+
+    if ( self )
+    {
+        self->t       = t;
+        self->content = StringCopy  ( content );
+        self->length  = StringLength( content );
+        self->group   = TokenGroup_copy( aGroup );
+        self->type    = Token_DetermineTokenType( aGroup, content );
+    }
+    return self;
+}
+~
+
+~!src/js/Token.js~
+function Token( t, content, length, aGroup )
+{
+    this.t       = t;
+    this.content = content;
+    this.length  = content.length;
+    this.group   = aGroup;
+    this.type    = Token.DetermineTokenType( aGroup, content );
+}
+~
+
+~src/java/Token.java~
+public Token( Tokenizer t, String content, TokenGroup aGroup )
+{
+    this.t       = t;
+    this.content = content;
+    this.length  = content.length();
+    this.group   = aGroup;
+    this.type    = DetermineTokenType( aGroup, content );
+}
+~
+
+.. Deconstructor
+
+Ix does not require explicit deconstructor.
+
+~src/c/Token.c~
+Token* Token_free( Token* self )
+{
+    if ( self->group ) self->group = TokenGroup_free( self->group );
+
+    free( self->content );
+
+    self->t       = NULL;
+    self->content = NULL;
+
+    Runtime_Free( self );
+
+    return NULL;
+}
+~
+
+.. Token.getContent
+
+~src/ix/Token.ix~
+public getContent() : const string&
+{
+    return @content;
+}
+~
+
+~src/c/Token.c~
+const char* Token_getContent( Token* this )
+{
+    return this->content;
+}
+~
+
+~src/js/Token.js~
+Token.prototype.getContent
+=
+function()
+{
+    return this.content;
+}
+~
+
+.. Token.getLength
+
+~src/ix/Token.ix~
+public getLength() : integer
+{
+    return @length;
+}
+~
+
+~src/c/Token.c~
+int Token_getLength( Token* this )
+{
+    return this->length;
+}
+~
+
+~src/js/Token.js~
+Token.prototype.getLength
+=
+function()
+{
+    return this.length;
+}
+~
+
+.. Token.getTokenGroup
+
+~src/ix/Token.ix~
+public getTokenGroup : TokenGroup
+{
+    return @group;
+}
+~
+
+~src/c/Token.c~
+TokenGroup* Token_getTokenGroup( Token* this )
+{
+    return this->group;
+}
+~
+
+~src/js/Token.js~
+Token.prototype.getTokenGroup
+=
+function()
+{
+    return this.group;
+}
+~
+
+.. Token.getTokenType
+
+~src/ix/Token.ix~
+public getTokenType : TokenType
+{
+    return @type;
+}
+~
+
+~src/c/Token.c~
+EnumTokenType Token_getTokenType( Token* this )
+{
+    return this->type;
+}
+~
+
+~src/js/Token.js~
+Token.prototype.getTokenType
+=
+function()
+{
+    return this.type;
+}
+~
+
+.. Token.DetermineTokenType
+
+~src/ix/Token.ix~
+private DetermineTokenType( group: TokenGroup, content: string& )
+{
+    var type = TokenType.UNKNOWN;
+
+    switch( group )
+    {
+    case WHITESPACE:
+        type = Token.DetermineWhitespaceType( content );
+        break;
+
+    case SYMBOLIC:
+        type = Token.DetermineSymbolicType( content );
+        break;
+
+    case ALPHANUMERIC:
+        type = Token.DetermineAlhanumericType( content );
+        break;
+
+    case VALUE:
+        type = TokenType.VALUE;
+        break;
+
+    case HEX_VALUE:
+        type = TokenType.HEX;
+        break;
+
+    case OPEN:
+        type = TokenType.UNKNOWN_TYPE;
+        break;
+
+    case CLOSE:
+        type = TokenType.UNKNOWN_TYPE;
+        break;
+
+    case UNKNOWN_GROUP:
+        type = TokenType.UNKNOWN_TYPE;
+        break;
+    }
+
+    return type;
+}
+~
+
+~src/c/Token.c~
+EnumTokenType Token_DetermineTokenType( TokenGroup* group, const char* content )
+{
+    EnumTokenType type = UNKNOWN_TYPE;
+
+    switch ( group->groupType )
+    {
+    case UNKNOWN_GROUP:
+        type = UNKNOWN_TYPE;
+        break;
+
+    case WHITESPACE:
+        type = Token_DetermineWhitespaceType( content );
+        break;
+
+    case OPEN:
+        type = Token_DetermineOpenType( content );
+        break;
+
+    case CLOSE:
+        type = Token_DetermineCloseType( content );
+        break;
+
+    case SYMBOLIC:
+        type = Token_DetermineSymbolicType( content );
+        break;
+
+    case ALPHANUMERIC:
+        type = Token_DetermineAlphanumericType( content );
+        break;
+
+    case STRING:
+        type = UNKNOWN_TYPE;
+        break;
+
+    case CHAR:
+        type = FLOAT;
+        break;
+
+    case VALUE:
+        type = FLOAT;
+        break;
+
+    case HEX_VALUE:
+        type = HEX;
+        break;
+
+    default:
+        type = UNKNOWN_TYPE;
+    }
+
+    return type;
+}
+~
+
+~src/js/Token.js~
+Token.DetermineTokenType
+=
+function( group, content )
+{
+    var type = TokenType.UNKNOWN;
+
+    switch( group )
+    {
+    case TokenGroup.WHITESPACE:
+        type = Token.DetermineWhitespaceType( content );
+        break;
+
+
+
+    case TokenGroup.SYMBOLIC:
+        type = Token.DetermineSymbolicType( content );
+        break;
+
+    case TokenGroup.ALPHANUMERIC:
+        type = Token.DetermineAlhanumericType( content );
+        break;
+
+    case TokenGroup.VALUE:
+        type = TokenType.VALUE;
+        break;
+
+    case TokenGroup.HEX_VALUE:
+        type = TokenType.HEX;
+        break;
+    }
+}
+~
+
+.. Token.DetermineWhitespaceType
+
+~src/c/Token.c~
+EnumTokenType Token_DetermineWhitespaceType( const char* content )
+{
+    switch( content[0] )
+    {
+    case ' ':
+        return SPACE;
+    case '\t':
+        return TAB;
+    case '\n':
+        return NEWLINE;
+    default:
+        return UNKNOWN_WHITESPACE;
+    }
+}
+~
+
+.. Token.DetermineOpenType
+
+~src/c/Token.c~
+EnumTokenType Token_DetermineOpenType( const char* content )
+{
+    switch ( content[0] )
+    {
+    case '{':
+        return STARTBLOCK;
+    case '(':
+        return STARTEXPRESSION;
+    case '[':
+        return STARTSUBSCRIPT;
+    case '<':
+        return STARTTAG;
+    default:
+        return UNKNOWN_OPEN;
+    }
+}
+~
+
+.. Token.DetermineCloseType
+
+~src/c/Token.c~
+EnumTokenType Token_DetermineCloseType( const char* content )
+{
+    switch ( content[0] )
+    {
+    case '}':
+        return ENDBLOCK;
+    case ')':
+        return ENDEXPRESSION;
+    case ']':
+        return ENDSUBSCRIPT;
+    case '>':
+        return ENDTAG;
+    default:
+        return UNKNOWN_OPEN;
+    }
+}
+~
+
+.. Token.DetermineSymbolicType
+
+~src/c/Token.c~
+EnumTokenType Token_DetermineSymbolicType( const char* content )
+{
+    switch ( content[0] )
+    {
+    case '~':   return SYMBOL;
+    case '!':
+        switch ( content[1] )
+        {
+        case '=':  return INFIXOP;
+        default:   return PREFIXOP;
+        }
+        break;
+
+    case '@':   return SYMBOL;
+    case '#':   return SYMBOL;
+    case '$':   return SYMBOL;
+    case '%':
+        switch ( content[1] )
+        {
+        case '=':  return ASSIGNMENTOP;
+        default:   return INFIXOP;
+        }
+        break;
+
+    case '^':
+        switch ( content[1] )
+        {
+        case '=':  return ASSIGNMENTOP;
+        default:   return INFIXOP;
+        }
+        break;
+
+    case '&':
+        switch ( content[1] )
+        {
+        case '&':  return INFIXOP;
+        case '=':  return ASSIGNMENTOP;
+        default:   return INFIXOP;
+        }
+        break;
+
+    case '*':
+        switch ( content[1] )
+        {
+        case '=':  return ASSIGNMENTOP;
+        default:   return INFIXOP;
+        }
+        break;
+
+    case '-':
+        switch ( content[1] )
+        {
+        case '-':  return PREPOSTFIXOP;
+        case '=':  return ASSIGNMENTOP;
+        default:   return INFIXOP;
+        }
+        break;
+
+    case '+':
+        switch ( content[1] )
+        {
+        case '+':  return PREPOSTFIXOP;
+        case '=':  return ASSIGNMENTOP;
+        default:   return INFIXOP;
+        }
+        break;
+
+    case '=':
+        switch ( content[1] )
+        {
+        case '=':  return INFIXOP;
+        default:   return ASSIGNMENTOP;
+        }
+        break;
+
+    case '/':
+        switch ( content[1] )
+        {
+        case '/':  return LINECOMMENT;
+        case '*':  return COMMENT;
+        case '=':  return ASSIGNMENTOP;
+        default:   return INFIXOP;
+        }
+        break;
+
+    case ':':   return OPERATOR;
+    case ';':   return STOP;
+    case '<':   return INFIXOP;
+    case '>':   return INFIXOP;
+    default:    return SYMBOL;
+    }
+}
+~
+
+.. Token.DetermineAlphanumericType
+
+~src/c/Token.c~
+EnumTokenType Token_DetermineAlphanumericType( const char* content )
+{
+         if ( StringEquals( content, "class"      ) ) return CLASS;
+    else if ( StringEquals( content, "import"     ) ) return IMPORT;
+    else if ( StringEquals( content, "include"    ) ) return INCLUDE;
+    else if ( StringEquals( content, "interface"  ) ) return INTERFACE;
+    else if ( StringEquals( content, "package"    ) ) return PACKAGE;
+
+    else if ( StringEquals( content, "public"     ) ) return MODIFIER;
+    else if ( StringEquals( content, "protected"  ) ) return MODIFIER;
+    else if ( StringEquals( content, "private"    ) ) return MODIFIER;
+
+    else if ( StringEquals( content, "bool"       ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "boolean"    ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "byte"       ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "char"       ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "const"      ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "double"     ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "float"      ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "int"        ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "integer"    ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "long"       ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "short"      ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "signed"     ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "string"     ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "unsigned"   ) ) return PRIMITIVE;
+    else if ( StringEquals( content, "void"       ) ) return PRIMITIVE;
+
+    else if ( StringEquals( content, "break"      ) ) return KEYWORD;
+    else if ( StringEquals( content, "case"       ) ) return KEYWORD;
+    else if ( StringEquals( content, "catch"      ) ) return KEYWORD;
+    else if ( StringEquals( content, "default"    ) ) return KEYWORD;
+    else if ( StringEquals( content, "extends"    ) ) return KEYWORD;
+    else if ( StringEquals( content, "implements" ) ) return KEYWORD;
+    else if ( StringEquals( content, "for"        ) ) return KEYWORD;
+    else if ( StringEquals( content, "foreach"    ) ) return KEYWORD;
+    else if ( StringEquals( content, "let"        ) ) return KEYWORD;
+    else if ( StringEquals( content, "namespace"  ) ) return KEYWORD;
+    else if ( StringEquals( content, "return"     ) ) return KEYWORD;
+    else if ( StringEquals( content, "switch"     ) ) return KEYWORD;
+    else if ( StringEquals( content, "try"        ) ) return KEYWORD;
+    else if ( StringEquals( content, "var"        ) ) return KEYWORD;
+    else                                              return WORD;
+}
+~
+
+.. Token.print
+
+~src/c/Token.c~
+void Token_print( Token* self, void* stream )
+{
+    switch ( self->group->groupType )
+    {
+    case OPEN:
+    case CLOSE:
+    case SYMBOLIC:
+        switch( self->type )
+        {
+        case COMMENT:
+        case LINECOMMENT:
+            Term_Colour( stream, COLOR_COMMENT );
+            break;
+
+        default:
+            Term_Colour( stream, COLOR_BOLD );
+        }
+        break;
+
+    case STRING:
+        Term_Colour( stream, COLOR_STRING );
+        break;
+
+    case CHAR:
+        Term_Colour( stream, COLOR_CHAR );
+        break;
+
+    case ALPHANUMERIC:
+        switch ( self->type )
+        {
+        case PRIMITIVE:
+            Term_Colour( stream, COLOR_TYPE );
+            break;
+
+        case CLASS:
+        case KEYWORD:
+        case MODIFIER:
+            Term_Colour( stream, COLOR_MODIFIER );
+            break;
+
+        case WORD:
+            Term_Colour( stream, COLOR_NORMAL );
+            break;
+
+        default:
+            Term_Colour( stream, COLOR_LIGHT );
+        }
+        break;
+
+    case VALUE:
+        Term_Colour( stream, COLOR_VALUE );
+        break;        
+
+    case UNKNOWN_GROUP:
+        Term_Colour( stream, COLOR_UNKNOWN );
+        break;        
+
+    default:
+        Term_Colour( stream, COLOR_NORMAL );
+    }
+    fprintf( stream, "%s", self->content );
+    Term_Colour( stream, COLOR_NORMAL );
+}
+~
+
+
+. Token Group (Enum)
+
+.. Enum definitions
+
+~!src/ix/EnumTokenGroup.ix~
+public enum EnumTokenGroup
+{
+    UNKNOWN      : "UNKNOWN"
+    WHITESPACE   : "WHITESPACE"     #   
+    OPEN         : "OPEN"           # { ( [ <
+    CLOSE        : "CLOSE"          # } ) ] >
+    SYMBOLIC     : "SYMBOLIC"       # ~!@#$%^&*-
+    ESCAPE       : "ESCAPE"         # \\
+    ALPHANUMERIC : "ALPHANUMERIC"   # _ A-Z a-z 0-9
+    STRING       : "STRING"         # \" 
+    CHAR         : "CHAR"           # \' 
+    VALUE        : "VALUE"          # 9, 
+    HEX_VALUE    : "HEX_VALUE"      # 0x9999
+}
+~
+
+~!include/libtokenizer/EnumTokenGroup.h~
+#ifndef LIBTOKENIZER_ENUMTOKENGROUP_H
+#define LIBTOKENIZER_ENUMTOKENGROUP_H
+
+#include "libtokenizer/Base.h"
+
+typedef enum _EnumTokenGroup
+{
+    UNKNOWN_GROUP,
+    WHITESPACE,
+    OPEN,
+    CLOSE,
+    SYMBOLIC,
+    ESCAPE,
+    ALPHANUMERIC,
+    STRING,
+    CHAR,
+    VALUE,
+    HEX_VALUE
+
+} EnumTokenGroup;
+
+#endif
+~
+
+~!src/js/EnumTokenGroup.js~
+export var EnumTokenGroup = new Enum([
+    "UNKNOWN",
+    "WHITESPACE",
+    "OPEN",
+    "CLOSE",
+    "SYMBOLIC",
+    "ESCAPE",
+    "ALPHANUMERIC",
+    "STRING",
+    "CHAR",
+    "VALUE",
+    "HEX_VALUE"
+]);
+~
+
+~!src/java/EnumTokenGroup.java~
+public enum EnumTokenGroup
+{
+    UNKNOWN,
+    WHITESPACE,
+    OPEN,
+    CLOSE,
+    SYMBOLIC,
+    ALPHANUMERIC,
+    VALUE,
+    HEX_VALUE
+}
+~
+
+. Token type
+
+~!src/ix/EnumTokenType.ix~
+public enum EnumTokenType
+{
+    UNKNOWN_TYPE
+    WORD            # Alphanumeric
+    FILEPATH
+    PACKAGE
+    IMPORT
+    INCLUDE
+    CLASS
+    CLASSNAME
+    INTERFACE
+    ENUM
+    ENUMNAME
+    GENERIC
+    ANNOTATION
+    IMETHOD
+    METHOD
+    BLOCK
+    STARTBLOCK      # Open
+    ENDBLOCK
+    MEMBER
+    EXPRESSION
+    STARTEXPRESSION
+    ENDEXPRESSION
+    CLAUSE
+    PARAMETERS
+    PARAMETER
+    ARGUMENTS
+    ARGUMENT
+    STATEMENT
+    DECLARATION
+    COMMENT
+    JAVADOC
+    BLANKLINE
+    TOKEN
+    SYMBOL
+    KEYWORD
+    MODIFIED
+    PRIMITIVE
+    TYPE
+    METHODNAME
+    VARIABLE
+    NAME
+    METHODCALL
+    CONSTRUCTOR
+    OPERATOR
+    ASSIGNMENTOP
+    PREFIXOP
+    INFIXOP
+    POSTFIXOP
+    PREINFIXOP
+    PREPOSTFIXOP
+    SELECTOR
+    VALUE
+    FLOAT
+    INTEGER
+    NUMBER
+    HEX
+    OCTAL
+    DOUBLEQUOTE
+    QUOTE
+    STOP
+    TAB
+    SPACE
+    WHITESPACE
+    NEWLINE
+    LINECOMMENT
+    ESCAPED
+    OTHER
+}
+~
+
+~!src/js/EnumTokenType.js~
+export var EnumTokenType = new Enum
+([
+    "UNKNOWN_TYPE",
+    "WORD",
+    "FILE",
+    "PACKAGE",
+    "IMPORT",
+    "INCLUDE",
+    "CLASS",
+    "CLASSNAME",
+    "INTERFACE",
+    "ENUM",
+    "ENUMNAME",
+    "srcERIC",
+    "ANNOTATION",
+    "IMETHOD",
+    "METHOD",
+    "BLOCK",
+    "STARTBLOCK",
+    "ENDBLOCK",
+    "MEMBER",
+    "EXPRESSION",
+    "STARTEXPRESSION",
+    "ENDEXPRESSION",
+    "CLAUSE",
+    "PARAMETERS",
+    "PARAMETER",
+    "ARGUMENTS",
+    "ARGUMENT",
+    "STATEMENT",
+    "DECLARATION",
+    "COMMENT",
+    "JAVADOC",
+    "BLANKLINE",
+    "TOKEN",
+    "SYMBOL",
+    "KEYWORD",
+    "MODIFIED",
+    "PRIMITIVE",
+    "TYPE",
+    "METHODNAME",
+    "VARIABLE",
+    "NAME",
+    "METHODCALL",
+    "CONSTRUCTOR",
+    "OPERATOR",
+    "ASSIGNMENTOP",
+    "PREFIXOP",
+    "INFIXOP",
+    "POSTFIXOP",
+    "PREINFIXOP",
+    "PREPOSTFIXOP",
+    "SELECTOR",
+    "VALUE",
+    "FLOAT",
+    "INTEGER",
+    "NUMBER",
+    "HEX",
+    "OCTAL",
+    "DOUBLEQUOTE",
+    "QUOTE",
+    "STOP",
+    "TAB",
+    "SPACE",
+    "WHITESPACE",
+    "NEWLINE",
+    "LINECOMMENT",
+    "ESCAPED",
+    "OTHER"
+]);
+~
+
+~!include/libtokenizer/EnumTokenType.h~
+typedef enum _EnumTokenType
+{
+	UNKNOWN_TYPE,
+    UNKNOWN_WHITESPACE,
+    UNKNOWN_OPEN,
+    UNKNOWN_CLOSE,
+
+    //  Whitespace
+    SPACE,
+    TAB,
+    NEWLINE,
+
+    //  Open
+    STARTBLOCK,
+    STARTEXPRESSION,
+    STARTSUBSCRIPT,
+    STARTTAG,
+
+    //  Close
+    ENDBLOCK,
+    ENDEXPRESSION,
+    ENDSUBSCRIPT,
+    ENDTAG,
+
+    //  Symbolic
+    OPERATOR,
+    ASSIGNMENTOP,
+    PREFIXOP,
+    INFIXOP,
+    POSTFIXOP,
+    PREINFIXOP,
+    PREPOSTFIXOP,
+    STOP,
+    LINECOMMENT,
+    COMMENT,
+
+    //  Words
+
+
+    //  Composite
+	WORD,
+	FILEPATH,
+	PACKAGE,
+	IMPORT,
+	INCLUDE,
+	CLASS,
+	CLASSNAME,
+	INTERFACE,
+	ENUM,
+	ENUMNAME,
+	GENERIC,
+	ANNOTATION,
+	IMETHOD,
+	METHOD,
+	BLOCK,
+	MEMBER,
+	MEMBERNAME,
+	EXPRESSION,
+	CLAUSE,
+	PARAMETERS,
+	PARAMETER,
+	ARGUMENTS,
+	ARGUMENT,
+	STATEMENT,
+	DECLARATION,
+	JAVADOC,
+	BLANKLINE,
+	TOKEN,
+	SYMBOL,
+	KEYWORD,
+	MODIFIER,
+	PRIMITIVE,
+	TYPE,
+	METHODNAME,
+	VARIABLE,
+	NAME,
+	METHODCALL,
+	CONSTRUCTOR,
+	SELECTOR,
+	FLOAT,
+	INTEGER,
+	NUMBER,
+	HEX,
+	OCTAL,
+	DOUBLEQUOTE,
+	QUOTE,
+	ESCAPED,
+	OTHER
+} EnumTokenType;
+~
+
+~!src/java/EnumTokenType.java~
+public enum EnumTokenType
+{
+    UNKNOWN_TYPE,
+    WORD,
+    FILE,
+    PACKAGE,
+    IMPORT,
+    INCLUDE,
+    CLASS,
+    CLASSNAME,
+    INTERFACE,
+    ENUM,
+    ENUMNAME,
+    srcERIC,
+    ANNOTATION,
+    IMETHOD,
+    METHOD,
+    BLOCK,
+    STARTBLOCK,
+    ENDBLOCK,
+    MEMBER,
+    EXPRESSION,
+    STARTEXPRESSION,
+    ENDEXPRESSION,
+    CLAUSE,
+    PARAMETERS,
+    PARAMETER,
+    ARGUMENTS,
+    ARGUMENT,
+    STATEMENT,
+    DECLARATION,
+    COMMENT,
+    JAVADOC,
+    BLANKLINE,
+    TOKEN,
+    SYMBOL,
+    KEYWORD,
+    MODIFIED,
+    PRIMITIVE,
+    TYPE,
+    METHODNAME,
+    VARIABLE,
+    NAME,
+    METHODCALL,
+    CONSTRUCTOR,
+    OPERATOR,
+    ASSIGNMENTOP,
+    PREFIXOP,
+    INFIXOP,
+    POSTFIXOP,
+    PREINFIXOP,
+    PREPOSTFIXOP,
+    SELECTOR,
+    VALUE,
+    FLOAT,
+    INTEGER,
+    NUMBER,
+    HEX,
+    OCTAL,
+    DOUBLEQUOTE,
+    QUOTE,
+    STOP,
+    TAB,
+    SPACE,
+    WHITESPACE,
+    NEWLINE,
+    LINECOMMENT,
+    ESCAPED,
+    OTHER
+}
+~
+
+. Token Group
+
+.. Class Definitions
+
+~src/ix/TokenGroup.ix~
+public class TokenGroup
+{
+    @character: char
+    @groupType: EnumTokenGroup
+}
+~
+
+~!include/libtokenizer/TokenGroup.h~
+#ifndef LIBTOKENIZER_TOKENGROUP_H
+#define LIBTOKENIZER_TOKENGROUP_H
+
+#include "libtokenizer/Base.h"
+#include "libtokenizer/EnumTokenGroup.h"
+
+typedef struct _TokenGroup
+{
+    char           character;
+    EnumTokenGroup groupType;
+
+} TokenGroup;
+
+TokenGroup*    TokenGroup_new          ( char ch );
+TokenGroup*    TokenGroup_free         ( TokenGroup* self );
+EnumTokenGroup TokenGroup_DetermineType( char ch );
+bool           TokenGroup_matches      ( TokenGroup* self, char ch );
+TokenGroup*    TokenGroup_copy         ( const TokenGroup* self );
+
+#endif
+~
+
+.. Constructors
+
+~src/ix/TokenGroup.ix~
+public new( character : char )
+{
+    @character = character
+    @groupType = TokenGroup.DetermineType( character );
+}
+~
+
+~!src/c/TokenGroup.c~
+#include "libtokenizer/Base.h"
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/TokenGroup.h"
+
+TokenGroup* TokenGroup_new( char character )
+{
+    TokenGroup* self = Runtime_Calloc( 1, sizeof( TokenGroup ) );
+
+    if ( self )
+    {
+        self->character = character;
+        self->groupType = TokenGroup_DetermineType( character );
+    }
+
+    return self;
+}
+~
+
+~!src/js/TokenGroup.js~
+function TokenGroup( character )
+{
+    this.character = character
+    this.groupType = TokenGroup.DetermineType( character );
+}
+~
+
+.. Destructors
+
+~src/c/TokenGroup.c~
+TokenGroup* TokenGroup_free( TokenGroup* self )
+{
+    if ( self )
+    {
+        self->character = 0;
+        self->groupType = 0;
+    }
+    Runtime_Free( self );
+
+    return 0;
+}
+~
+
+.. TokenGroup.DetermineType
+
+~src/c/TokenGroup.c~
+EnumTokenGroup TokenGroup_DetermineType( char ch )
+{
+    switch ( ch )
+    {
+    case '~':
+    case '!':
+    case '@':
+    case '#':
+    case '$':
+    case '%':
+    case '^':
+    case '&':
+    case '*':
+    case '-':
+    case '+':
+    case '=':
+    case '|':
+    case ':':
+    case ';':
+    case ',':
+    case '.':
+    case '?':
+    case '/':
+        return SYMBOLIC;
+
+    case '\\':
+        return ESCAPE;
+
+    case '(':
+    case '{':
+    case '[':
+    case '<':
+        return OPEN;
+
+    case ')':
+    case '}':
+    case ']':
+    case '>':
+        return CLOSE;
+
+    case '"':
+        return STRING;
+
+    case '\'':
+        return CHAR;
+
+    case '_':
+        return ALPHANUMERIC;
+
+    default:
+        switch ( ch )
+        {
+        case  9: // TAB
+        case 10: // LF
+        case 11: // VT
+        case 12: // FF
+        case 13: // CR
+        case 14: // SO
+        case 15: // SI
+        case 32: // SPACE
+            return WHITESPACE;
+
+        default:
+            if ( (48 <= ch) && (ch <= 57) )
+            {
+                return VALUE;
+            }
+            else
+            if ( (65 <= ch) && (ch <= 90) ) // uppercase
+            {
+                return ALPHANUMERIC;
+            }
+            else
+            if ( (97 <= ch) && (ch <= 122) ) // lowercase
+            {
+                return ALPHANUMERIC;
+            }
+            return UNKNOWN_GROUP;
+        }
+    }
+}
+~
+
+~src/js/TokenGroup.js~
+TokenGroup.DetermineType
+=
+function( ch )
+{
+    switch ( ch )
+    {
+    case '~':
+    case '!':
+    case '@':
+    case '#':
+    case '$':
+    case '%':
+    case '^':
+    case '&':
+    case '*':
+    case '-':
+    case '+':
+    case '=':
+    case '|':
+    case ':':
+    case ';':
+    case '.':
+        return EnumTokenGroup.SYMBOLIC;
+
+    case '(':
+    case '{':
+    case '[':
+    case '<':
+        return EnumTokenGroup.OPEN;
+
+    case ')':
+    case '}':
+    case ']':
+    case '>':
+        return EnumTokenGroup.CLOSE;
+
+    case '"':
+        return EnumTokenGroup.STRING;
+
+    case '\'':
+        return EnumTokenGroup.CHAR;
+
+    case '_':
+        return EnumTokenGroup.ALPHANUMERIC;
+
+    default:
+        var char_code = ch.charCodeAt( 0 )
+
+        switch ( char_code )
+        {
+        case 10: // LF
+        case 11: // VT
+        case 12: // FF
+        case 13: // CR
+        case 14: // SO
+        case 15: // SI
+        case 32: // SPACE
+            return EnumTokenGroup.WHITESPACE
+
+        default:
+            if ( (48 <= char_code) && (char_code <= 57) )
+            {
+                return EnumTokenGroup.VALUE;
+            }
+            else
+            if ( (65 <= char_code) && (char_code <= 90) ) // uppercase
+            {
+                return EnumTokenGroup.ALPHANUMERIC
+            }
+            else
+            if ( (97 <= char_code) && (char_code <= 122) ) // lowercase
+            {
+                return EnumTokenGroup.ALPHANUMERIC
+            }
+            return EnumTokenGroup.UNKNOWN;
+        }
+    }
+}
+~
+
+.. TokenGroup.matches
+
+~src/c/TokenGroup.c~
+bool TokenGroup_matches( TokenGroup* self, char ch )
+{
+    if ( '\0' == ch )
+    {
+        return FALSE;
+    }
+    else
+    {
+        EnumTokenGroup secondType = TokenGroup_DetermineType( ch );
+
+        switch( self->groupType )
+        {
+        case SYMBOLIC:
+            switch( secondType )
+            {
+            case SYMBOLIC:
+                return TRUE;
+
+            default:
+                return FALSE;
+            }
+            break;
+
+        case STRING:
+            switch ( secondType )
+            {
+            case STRING:
+                return FALSE;
+
+            default:
+                return TRUE;
+            }
+            break;
+
+        case CHAR:
+            switch ( secondType )
+            {
+            case CHAR:
+                return FALSE;
+
+            default:
+                return TRUE;
+            }
+            break;
+
+        case ALPHANUMERIC:
+            switch ( secondType )
+            {
+            case ALPHANUMERIC:
+            case VALUE:
+                return TRUE;
+
+            default:
+                return FALSE;
+            }
+            break;
+
+        case WHITESPACE:
+            switch ( secondType )
+            {
+            case WHITESPACE:
+                return TRUE;
+
+            default:
+                return FALSE;
+            }
+            break;
+
+        case VALUE:
+            switch ( secondType )
+            {
+            case VALUE:
+                return TRUE;
+
+            case ALPHANUMERIC:
+                if ( (65 <= ch) && (ch <= 70) )
+                {
+                    return TRUE;
+                }
+                else
+                if ( (97 <= ch) && (ch <= 102) )
+                {
+                    return TRUE;
+                }
+                else
+                return ('x' == ch);
+
+            default:
+                return FALSE;
+            }
+            break;
+
+        case UNKNOWN_GROUP:
+            switch ( secondType )
+            {
+            case UNKNOWN_GROUP:
+                return TRUE;
+
+            default:
+                return FALSE;
+            }
+            break;
+
+        default:
+            return FALSE;
+        }
+    }
+}
+~
+
+~src/js/TokenGroup.js~
+TokenGroup.prototype.matches
+=
+function( character )
+{
+    if ( "" == character )
+    {
+        return false;
+    }
+    else
+    {
+        var secondType = TokenGroup.DetermineType( character );
+        var char_code  = character.charCodeAt( 0 );
+
+        switch ( this.groupType )
+        {
+        case EnumTokenGroup.SYMBOLIC:
+            switch ( secondType )
+            {
+            case EnumTokenGroup.SYMBOLIC:
+                return true;
+
+            default:
+                return false;
+            }
+            break;
+
+        case EnumTokenGroup.STRING:
+            switch ( secondType )
+            {
+            case EnumTokenGroup.STRING:
+                return false;
+
+            default:
+                return true;
+            }
+            break;
+
+        case EnumTokenGroup.CHAR:
+            return false;
+            break;
+
+        case EnumTokenGroup.ALPHANUMERIC:
+            switch ( secondType )
+            {
+            case EnumTokenGroup.ALPHANUMERIC:
+            case EnumTokenGroup.VALUE:
+                return true;
+
+            default:
+                return false;
+            }
+            break;
+
+        case EnumTokenGroup.WHITESPACE:
+            switch ( secondType )
+            {
+            case EnumTokenGroup.WHITESPACE:
+                return true;
+
+            default:
+                return false;
+            }
+            break;
+
+        case EnumTokenGroup.VALUE:
+            switch ( secondType )
+            {
+            case EnumTokenGroup.VALUE:
+                return true;
+
+            case EnumTokenGroup.ALPHANUMERIC:
+                if ( ('65' <= char_code) && (char_code <= 70) )
+                {
+                    return true;
+                }
+                else
+                if ( ('97' <= char_code) && (char_code <= 102) )
+                {
+                    return true;
+                }
+                else
+                return ("x" == character);
+
+            default:
+                return false;
+            }
+            break;
+
+        case EnumTokenGroup.UNKNOWN:
+            switch ( secondType )
+            {
+            case EnumTokenGroup.UNKNOWN:
+                return true;
+
+            default:
+                return false;
+            }
+            break;
+
+        default:
+            return false;
+        }
+    }
+}
+~
+
+.. TokenGroup.copy
+
+~src/c/TokenGroup.c~
+TokenGroup* TokenGroup_copy( const TokenGroup* self )
+{
+    TokenGroup* copy = Runtime_Calloc( 1, sizeof( TokenGroup ) );
+
+    copy->character = self->character;
+    copy->groupType = self->groupType;
+
+    return copy;
+}
+~
+
+
+. Array
+
+.. Example usage: Array 
+
+~!src/c/testArray.c~
+#include <stdlib.h>
+#include <stdio.h>
+#include "libtokenizer/Array.h"
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/String.h"
+
+int main( int argc, char** argv )
+{
+    Array* array  = Array_new( NULL );
+    Array* target = Array_new( NULL );
+
+    int len;
+
+    if ( 1 )
+    {
+        for ( int i=0; i < 100; i++ )
+        {
+            char* test = StringCopy( "test" );
+
+            Array_push( array, test );
+        }
+
+        len = Array_length( array );
+
+        //fprintf( stdout, "Removing %i items\n", len );
+        for ( int i=0; i < len; i++ )
+        {
+            char* test = (char*) Array_shift( array );
+
+            //fprintf( stdout, "%2i: %s\n", i, test );
+
+            Array_unshift( target, test );
+        }
+        len = Array_length( array );
+
+        //fprintf( stdout, "%i items left\n", len );
+
+        if ( 0 != len )
+        {
+            fprintf( stderr, "Unusual circumstance\n" );
+            exit( -1 );
+        }
+
+        if ( (char*) Array_shift( array ) )
+        {
+            fprintf( stderr, "Unusual circumstance\n" );
+            exit( -1 );
+        }
+    }
+    Array_free( &array );
+
+    if ( 1 )
+    {
+        len = Array_length( target );
+        //fprintf( stdout, "Removing %i items from target\n", len );
+        for ( int i=0; i < len; i++ )
+        {
+            char* test = (char*) Array_shift( target );
+
+            //fprintf( stdout, "%2i: %s\n", i, test );
+
+            free( test );
+        }
+        len = Array_length( target );
+
+        //fprintf( stdout, "%i items left\n", len );
+
+        if ( 0 != len )
+        {
+            fprintf( stderr, "Unusual circumstance\n" );
+            exit( -1 );
+        }
+
+        if ( (char*) Array_shift( target ) )
+        {
+            fprintf( stderr, "Unusual circumstance\n" );
+            exit( -1 );
+        }
+    }
+    Array_free( &target );
+
+    if ( Runtime_Allocated() )
+    {
+        fprintf( stderr, "Memory leak: %i\n", Runtime_Allocated() );
+    }
+}
+~
+
+.. Class Definition
+
+~!include/libtokenizer/Array.h~
+#ifndef LIBTOKENIZER_ARRAY_H
+#define LIBTOKENIZER_ARRAY_H
+
+typedef struct _Array
+{
+    void** objects;
+    int    length;
+    int    size;
+
+} Array;
+
+Array* Array_new    ( Array*  self );
+Array* Array_free   ( Array** self );
+Array* Array_push   ( Array*  self, void* object );
+void*  Array_shift  ( Array*  self );
+Array* Array_unshift( Array*  self, void* object );
+int    Array_length ( Array*  self );
+
+#endif
+~
+
+.. Supporting private functions
+
+~!src/c/Array.c~
+#include <stdlib.h>
+#include "libtokenizer/Array.h"
+#include "libtokenizer/Runtime.h"
+
+void Array_expand( Array* self )
+{
+    if ( 0 == self->size )
+    {
+        self->objects = (void**) Runtime_Calloc( 1, sizeof( void* ) );
+        self->size    = 1;
+    }
+    else
+    {
+        int new_size = self->size * 2;
+
+        void** tmp = (void**) Runtime_Calloc( new_size, sizeof( void* ) );
+
+        for ( int i=0; i < self->length; i++ )
+        {
+            tmp[i] = self->objects[i];
+        }
+
+        Runtime_Free( self->objects );
+
+        self->objects = tmp;
+        self->size    = new_size;
+    }
+}
+~
+
+.. Constructors
+
+~src/c/Array.c~
+Array* Array_new( Array* self )
+{
+    if ( ! self ) self = Runtime_Calloc( 1, sizeof( Array ) );
+
+    if ( self )
+    {
+        self->objects = 0;
+        self->length  = 0;
+        self->size    = 0;
+    }
+    return self;
+}
+~
+
+.. Deconstructors
+
+~src/c/Array.c~
+Array* Array_free( Array** _self )
+{
+    Array* self = *_self;
+
+    if ( self )
+    {
+        if ( self->objects ) Runtime_Free( self->objects );
+
+        self->objects = 0;
+        self->length  = 0;
+        self->size    = 0;
+
+        self = Runtime_Free( self );
+    }
+
+    *_self = 0;
+
+    return 0;
+}
+~
+
+.. Array.push
+
+~src/c/Array.c~
+Array* Array_push( Array* self, void* object )
+{
+    if ( self->length == self->size )
+    {
+        Array_expand( self );
+    }
+
+    self->objects[self->length++] = object;
+
+    return self;
+}
+~
+
+.. Array.shift
+
+~src/c/Array.c~
+void* Array_shift( Array* self )
+{
+    if ( self->length )
+    {
+        void* head = self->objects[0];
+
+        for ( int i=1; i < self->length; i++ )
+        {    
+            self->objects[i-1] = self->objects[i];
+            self->objects[i]   = 0;
+        }
+        self->length--;
+        return head;
+    }
+    else
+    {
+        return NULL;
+    }
+}
+~
+
+.. Array.unshift
+
+~src/c/Array.c~
+Array* Array_unshift( Array* self, void* object )
+{
+    if ( self->length == self->size )
+    {
+        Array_expand( self );
+    }
+
+    for ( int i=self->length; 0 < i; i-- )
+    {    
+        self->objects[i]   = self->objects[i-1];
+        self->objects[i-1] = 0;
+    }
+    self->objects[0] = object;
+
+    self->length++;
+
+    return self;
+}
+~
+
+.. Array.length
+
+~src/c/Array.c~
+int Array_length( Array* self )
+{
+    return self->length;
+}
+~
+
+
+. Base
+
+~!include/libtokenizer/Base.h~
+#ifndef LIBTOKENIZER_BASE_H
+#define LIBTOKENIZER_BASE_H
+
+#ifndef bool
+#define bool int
+#endif
+
+#ifndef TRUE
+#define TRUE 1
+#endif
+
+#ifndef FALSE
+#define FALSE 0
+#endif
+
+#ifndef NULL
+#define NULL 0
+#endif
+
+#ifndef REF
+#define REF 0
+#endif
+
+#endif
+~
+
+. String
+
+.. Example Usage
+
+~!src/c/testString.c~
+#include <stdio.h>
+#include "libtokenizer/String.h"
+
+int main( int argc, char** argv )
+{
+    String* test = String_new( NULL, "Test" );
+
+    String_free( &test );
+
+    if ( 0 != test )
+    {
+        printf( "Can still see string.\n" );
+    }
+}
+~
+
+
+.. Class Definition
+
+~!include/libtokenizer/String.h~
+#ifndef LIBTOKENIZER_STRING_H
+#define LIBTOKENIZER_STRING_H
+
+#include "libtokenizer/Base.h"
+
+typedef struct _String
+{
+    char* content;
+    int   length;
+
+} String;
+
+String*     String_new    ( String*  self, const char* content );
+String*     String_free   ( String** self );
+
+const char* String_content( const String* self );
+int         String_length ( const String* self );
+String*     String_copy   ( const String* self );
+String*     String_cat    ( const String* self, const String* other );
+bool        String_equals ( const String* self, const String* other );
+
+int   StringLength( const char* s                  );
+char* StringCopy  ( const char* s                  );
+char* StringCat   ( const char* s1, const char* s2 );
+bool  StringEquals( const char* s1, const char* s2 );
+
+#endif
+~
+
+~!src/c/String.c~
+#include <stdlib.h>
+#include <string.h>
+
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/String.h"
+
+String* String_new( String* self, const char* content )
+{
+    if ( !self ) self = Runtime_Calloc( 1, sizeof( String ) );
+
+    if ( self )
+    {
+        self->content = StringCopy  ( content );
+        self->length  = StringLength( content );
+    }
+    return self;
+}
+
+String* String_free( String** _self )
+{
+    String* self = *_self;
+
+    if ( self )
+    {
+        free( self->content ); self->content = 0;
+        self->length = 0;
+
+        self = Runtime_Free( self );
+    }
+
+    *_self = 0;
+
+    return self;
+}
+
+const char* String_content( const String* self )
+{
+    return self->content;
+}
+
+int String_length( const String* self )
+{
+    return self->length;
+}
+
+String* String_copy( const String* self )
+{
+    return String_new( NULL, self->content );
+}
+
+String* String_cat( const String* self, const String* other )
+{
+    char* tmp = StringCat( self->content, other->content );
+    String* ret = String_new( NULL, tmp );
+    free( tmp );
+
+    return ret;
+}
+
+bool String_equals( const String* self, const String* other )
+{
+    return StringEquals( self->content, other->content );
+}
+
+int StringLength( const char* s )
+{
+    return strlen( s );
+}
+
+char* StringCopy( const char* s )
+{
+    int   len  = StringLength( s ) + 2;
+    char* copy = calloc( len, sizeof( char ) );
+
+    return strcpy( copy, s );
+}
+
+char* StringCat( const char* s1, const char* s2 )
+{
+    int len1 = StringLength( s1 );
+    int len2 = StringLength( s2 );
+    int len  = len1 + len2 + 1;
+
+    char* concatenated = calloc( len, sizeof( char ) );
+
+    int t=0;
+
+    for ( int i=0; i < len1; i++ )
+    {
+        concatenated[t++] = s1[i];
+    }
+
+    for ( int i=0; i < len2; i++ )
+    {
+        concatenated[t++] = s2[i];
+    }
+
+    concatenated[t] = '\0';
+
+    return concatenated;
+}
+
+bool StringEquals( const char* s1, const char* s2 )
+{
+    return (0 == strcmp( s1, s2 ));    
+}
+~
+
+~!src/ix/InputStream.ix~
+public class
+{
+
+
+
+
+}
+~
+
+
+~!include/libtokenizer/InputStream.h~
+#ifndef LIBTOKENIZER_INPUTSTREAM_H
+#define LIBTOKENIZER_INPUTSTREAM_H
+
+typedef struct _InputStream
+{
+    const char* filepath;
+    void* f;
+
+} InputStream;
+
+InputStream* InputStream_new ( const char*  filepath );
+InputStream* InputStream_free( InputStream* self     );
+int          InputStream_read( InputStream* self     );
+
+#endif
+~
+
+~!src/c/InputStream.c~
+#include <stdio.h>
+
+#include "Libtokenizer/InputStream.h"
+#include "Libtokenizer/String.h"
+
+InputStream* InputStream_new( const char* filepath )
+{
+    InputStream* self = calloc( 1, sizeof( InputStream ) );
+
+    if ( self )
+    {
+        self->filepath = StringCopy( filepath );
+    }
+    return self;
+}
+~
+~!src/js/Enum.js~
+function Enum( array )
+{
+    for ( var i in array )
+    {
+        this[array[i]] = array[i];
+    }
+}
+~
+
+. File
+
+.. Example Usage
+
+~!src/c/testFile.c~
+#include <stdlib.h>
+#include <stdio.h>
+
+#include "libtokenizer/File.h"
+
+int main( int argc, char** argv )
+{
+    const char* filepath = "./test/Sample.txt";
+
+    if ( ! File_Exists( filepath ) )
+    {
+        fprintf( stderr, "Could not find file: %s\n", filepath );
+        fflush( stderr );
+    }
+    else
+    {
+        char* content = File_Get_Contents( filepath );
+
+        fprintf( stdout, "%s\n", content );
+
+        free( content );
+    }
+
+    return 0;
+}
+~
+
+.. Class Definitions
+
+~!include/libtokenizer/File.h~
+#ifndef LIBTOKENIZER_FILE_H
+#define LIBTOKENIZER_FILE_H
+
+#include "libtokenizer/Base.h"
+
+bool  File_Exists      ( const char* filepath );
+char* File_Get_Contents( const char* filepath );
+
+#endif
+~
+
+!
+~!src/c/File.c~
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/stat.h>
+
+#include "libtokenizer/File.h"
+
+char* readline( FILE* stream );
+~
+!
+
+.. Class Methods
+
+... File Exists
+
+~src/c/File.c~
+bool File_Exists( const char* filepath )
+{
+    struct stat buf;
+
+    return (0 == lstat( filepath, &buf ));
+}
+~
+
+... File Get Contents
+
+~src/c/File.c~
+char* File_Get_Contents( const char* filepath )
+{
+    char* content = NULL;
+    FILE* fp      = fopen( filepath, "r" );
+
+    if ( fp )
+    {
+        struct stat buf;
+
+        if( 0 == lstat( filepath, &buf ) )
+        {
+            int size = buf.st_size;
+
+            content = calloc( size + 1, sizeof( char ) );
+
+            int red = fread( content, size, 1, fp );
+        }
+    }
+    return content;
+}
+~
+
+. Pushback Reader
+
+~!src/c/testPushbackReader.c~
+#include <stdlib.h>
+#include <stdio.h>
+
+#include "libtokenizer/File.h"
+#include "libtokenizer/PushbackReader.h"
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/String.h"
+
+int main( int argc, char** argv )
+{
+    const char* filepath = "./test/Sample.txt";
+
+    char*           c = File_Get_Contents ( filepath );
+    PushbackReader* r = PushbackReader_new( filepath );
+    {
+        int  len = StringLength( c );
+        int  i   = 0;
+        char ch;
+
+        while ( 0 != (ch = PushbackReader_read( r )) )
+        {
+            if ( i == len )
+            {
+                fprintf( stderr, "Exceeded filelength!!!" );
+                exit( -1 );
+            }
+
+            if ( c[i] != ch )
+            {
+                fprintf( stderr, "Character mismatch: %x != %x\n", c[i], ch );
+                exit( -1 );
+            }
+
+            fprintf( stdout, "#" );
+
+            int rnum = rand();
+
+            if ( rnum < (RAND_MAX/2) )
+            {
+                fprintf( stdout, "<>" );
+
+                PushbackReader_pushback( r );
+                PushbackReader_pushback( r );
+                PushbackReader_pushback( r );
+
+                PushbackReader_read( r );
+                PushbackReader_read( r );
+                PushbackReader_read( r );
+            }
+            i++;
+        }
+        fprintf( stdout, "\n" );
+    }
+    PushbackReader_free( r );
+
+    if ( Runtime_Allocated() )
+    {
+        fprintf( stderr, "Memory leak: %i\n", Runtime_Allocated() );
+    }
+
+    return 0;
+}
+~
+
+~!include/libtokenizer/PushbackReader.h~
+#ifndef LIBTOKENIZER_PUSHBACKREADER_H
+#define LIBTOKENIZER_PUSHBACKREADER_H
+
+typedef struct _PushbackReader
+{
+    char* content;
+    int   head;
+    int   length;
+
+} PushbackReader;
+
+PushbackReader* PushbackReader_new     ( const char*     filepath );
+PushbackReader* PushbackReader_free    ( PushbackReader* self     );
+int             PushbackReader_read    ( PushbackReader* self     );
+PushbackReader* PushbackReader_pushback( PushbackReader* self     );
+
+#endif
+~
+
+~!src/c/PushbackReader.c~
+#include <stdlib.h>
+#include <stdio.h>
+#include "libtokenizer/File.h"
+#include "libtokenizer/PushbackReader.h"
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/String.h"
+
+PushbackReader* PushbackReader_new( const char* filepath )
+{
+    PushbackReader* self = Runtime_Calloc( 1, sizeof( PushbackReader ) );
+
+    if ( self )
+    {
+        self->head = 0;
+
+        if ( File_Exists( filepath ) )
+        {
+            self->content = File_Get_Contents( filepath );
+            self->length  = StringLength( self->content );
+        }
+        else
+        {
+            self->content = StringCopy( "" );
+            self->length  = 0;
+        }
+    }
+    return self;
+}
+
+PushbackReader* PushbackReader_free( PushbackReader* self )
+{
+    if ( self )
+    {
+        free( self->content ); self->content = 0;
+        self->length = 0;
+
+        Runtime_Free( self );
+    }
+    return 0;
+}
+
+int PushbackReader_read( PushbackReader* self )
+{
+    return (self && (self->head < self->length)) ? self->content[self->head++] : 0;
+}
+
+PushbackReader* PushbackReader_pushback( PushbackReader* self )
+{
+    self->head--;
+    return self;
+}
+~
+
+~!src/js/PushbackReader.js~
+export function PushbackReader( content )
+{
+    this.content  = content;
+    this.head     = 0;
+    this.delta    = 0;
+}
+~
+
+~src/js/PushbackReader.js~
+PushbackReader.prototype.read
+=
+function()
+{
+    var ch = this.content[this.head++];
+
+    this.delta = 1;
+
+    if ( "\\" == ch )
+    {
+        ch += this.content[this.head++];
+        this.delta = 2;
+    }
+    else
+    if ( "'" == ch )
+    {
+        if ( this.content[this.head] )
+        {
+            ch += this.content[this.head++];
+            this.delta++;
+        }
+
+        if ( this.content[this.head] )
+        {
+            ch += this.content[this.head++];
+            this.delta++;
+        }
+    }
+
+    return ch;
+}
+~
+
+~src/js/PushbackReader.js~
+PushbackReader.prototype.pushback
+=
+function()
+{
+    this.head -= this.delta;
+
+    this.delta = 0;
+}
+~
+
+. Queue
+
+.. Example usage
+
+~!src/c/testQueue.c~
+#include <stdlib.h>
+#include <stdio.h>
+#include "libtokenizer/Queue.h"
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/String.h"
+
+int main( int argc, char** argv )
+{
+    Queue* q1 = Queue_new();
+    Queue* q2 = Queue_new();
+
+    int len;
+
+    if ( 1 )
+    {
+        for ( int i=0; i < 100; i++ )
+        {
+            char* test = StringCopy( "test" );
+
+            Queue_addTail( q1, test );
+        }
+
+        len = Queue_getLength( q1 );
+
+        fprintf( stdout, "Removing %i items\n", len );
+        for ( int i=0; i < len; i++ )
+        {
+            char* test = (char*) Queue_removeHead( q1 );
+
+            fprintf( stdout, "%2i: %s\n", i, test );
+
+            Queue_addHead( q2, test );
+        }
+        len = Queue_getLength( q1 );
+
+        fprintf( stdout, "%i items left\n", len );
+    }
+    q1 = Queue_free( q1 );
+
+    if ( 1 )
+    {
+        len = Queue_getLength( q2 );
+        fprintf( stdout, "Removing %i items from target\n", len );
+        for ( int i=0; i < len; i++ )
+        {
+            char* test = (char*) Queue_removeHead( q2 );
+
+            fprintf( stdout, "%2i: %s\n", i, test );
+
+            free( test );
+        }
+        len = Queue_getLength( q2 );
+
+        fprintf( stdout, "%i items left\n", len );
+
+        if ( 0 != len )
+        {
+            fprintf( stderr, "Unusual circumstance: length\n" );
+            exit( -1 );
+        }
+
+        if ( (char*) Queue_removeHead( q2 ) )
+        {
+            fprintf( stderr, "Unusual circumstance: head\n" );
+            exit( -1 );
+        }        
+
+        fprintf( stdout, "%i items left\n", len );
+    }
+    q2 = Queue_free( q2 );
+
+    if ( Runtime_Allocated() )
+    {
+        fprintf( stderr, "Memory leak: %i\n", Runtime_Allocated() );
+    }
+}
+~
+
+.. C
+
+~!include/libtokenizer/Queue.h~
+#ifndef LIBTOKENIZER_QUEUE_H
+#define LIBTOKENIZER_QUEUE_H
+
+#include "libtokenizer/Array.h"
+
+typedef struct _Queue
+{
+    Array* inner;
+
+} Queue;
+
+Queue* Queue_new       ();
+Queue* Queue_free      ( Queue* self );
+Queue* Queue_addHead   ( Queue* self, void* object );
+Queue* Queue_addTail   ( Queue* self, void* object );
+void*  Queue_removeHead( Queue* self );
+int    Queue_getLength ( Queue* self );
+
+#endif
+~
+
+~!src/c/Queue.c~
+#include <stdlib.h>
+#include "libtokenizer/Queue.h"
+#include "libtokenizer/Runtime.h"
+
+static void allocArray( Queue* self )
+{
+    if ( !self->inner )
+    {
+        self->inner = Array_new( NULL );
+    }
+}
+
+Queue* Queue_new()
+{
+    Queue* self = Runtime_Calloc( 1, sizeof( Queue ) );
+
+    if ( self )
+    {
+        self->inner = Array_new( NULL );
+    }
+    return self;
+}
+
+Queue* Queue_free( Queue* self )
+{
+    if ( self )
+    {
+        if ( self->inner ) self->inner = Array_free( &self->inner );
+        Runtime_Free( self );
+    }
+    return 0;
+}
+
+Queue* Queue_addHead( Queue* self, void* object )
+{
+    allocArray( self );
+
+    Array_unshift( self->inner, object );
+
+    return self;
+}
+
+Queue* Queue_addTail( Queue* self, void* object )
+{
+    allocArray( self );
+
+    Array_push( self->inner, object );
+
+    return self;
+}
+
+void* Queue_removeHead( Queue* self )
+{
+    allocArray( self );
+
+    return Array_shift( self->inner );
+}
+
+int Queue_getLength( Queue* self )
+{
+    allocArray( self );
+
+    return Array_length( self->inner );
+}
+~
+
+
+
+
+.. Javascript
+
+~!src/js/Queue.js~
+function Queue()
+{
+    this.inner = Array();
+}
+
+Queue.prototype.addTail
+=
+function( object )
+{
+    this.inner.push( object );
+}
+
+Queue.prototype.removeHead
+=
+function()
+{
+    return this.inner.shift();
+}
+
+Queue.prototype.addHead
+=
+function( object )
+{
+    this.inner.unshift( object );
+}
+
+Queue.prototype.getLength
+=
+function()
+{
+    return this.inner.length;
+}
+~
+
+
+~!include/libtokenizer/Runtime.h~
+#ifndef LIBTOKENIZER_RUNTIME_H
+#define LIBTOKENIZER_RUNTIME_H
+
+#include <stdlib.h>
+
+void* Runtime_Calloc( size_t count, size_t size );
+void* Runtime_Free  ( void* ptr  );
+int   Runtime_Allocated();
+
+#endif
+~
+
+~!src/c/Runtime.c~
+#include <stdlib.h>
+#include "libtokenizer/Base.h"
+#include "libtokenizer/Runtime.h"
+
+static int allocated = 0;
+
+void* Runtime_Calloc( size_t count, size_t size )
+{
+    allocated++;
+
+    return calloc( count, size );
+}
+
+void* Runtime_Free( void* ptr  )
+{
+    allocated--;
+
+    free( ptr );
+
+    return NULL;
+}
+
+int Runtime_Allocated()
+{
+    return allocated;
+}
+~
+. String Buffer
+
+.. Example usage
+
+~!src/c/testStringBuffer.c~
+#include <stdio.h>
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/StringBuffer.h"
+
+int main( int argc, char** argv )
+{
+    StringBuffer* sb = StringBuffer_new();
+
+    for ( int i=0; i < 10; i++ )
+    {
+        StringBuffer_append( sb, "test" );
+
+        const char* content = StringBuffer_content( sb );
+
+        fprintf( stdout, "%2i: %s\n", i, content );
+    }
+
+    StringBuffer_free( sb );
+
+    if ( Runtime_Allocated() )
+    {
+        fprintf( stderr, "Memory leak: %i\n", Runtime_Allocated() );
+    }
+}
+~
+
+.. Class definitions
+
+~!src/ix/StringBuffer.ix~
+public class
+{
+    @content: string*
+}
+~
+
+~!include/libtokenizer/StringBuffer.h~
+#ifndef LIBTOKENIZER_STRINGBUFFER_H
+#define LIBTOKENIZER_STRINGBUFFER_H
+
+#include "libtokenizer/Base.h"
+
+typedef struct _StringBuffer
+{
+    char* content;
+    int   length;
+
+} StringBuffer;
+
+StringBuffer* StringBuffer_new        ();
+StringBuffer* StringBuffer_free       ( StringBuffer* self                     );
+StringBuffer* StringBuffer_append     ( StringBuffer* self, const char* suffix );
+StringBuffer* StringBuffer_append_char( StringBuffer* self, char        ch     );
+const char*   StringBuffer_content    ( StringBuffer* self                     );
+bool          StringBuffer_isEmpty    ( StringBuffer* self                     );
+
+#endif
+~
+
+~!src/js/StringBuffer.js~
+function StringBuffer()
+{
+    this.inner = "";
+}
+~
+
+~!src/java/StringBuffer.java~
+public class StringBuffer {
+
+    java.lang.StringBuffer inner;
+~
+
+.. Constructors
+
+~!src/c/StringBuffer.c~
+#include <stdlib.h>
+#include "libtokenizer/Runtime.h"
+#include "libtokenizer/String.h"
+#include "libtokenizer/StringBuffer.h"
+
+StringBuffer* StringBuffer_new()
+{
+    StringBuffer* self = Runtime_Calloc( 1, sizeof( StringBuffer ) );
+
+    if ( self )
+    {
+        self->content = StringCopy( "" );
+        self->length  = 0;
+    }
+    return self;
+}
+~
+
+~!src/js/StringBuffer.js~
+function StringBuffer()
+{
+    this.inner = "";
+}
+~
+
+.. Deconstructors
+
+~src/c/StringBuffer.c~
+StringBuffer* StringBuffer_free( StringBuffer* self )
+{
+    free( self->content );
+    self->length = 0;
+    Runtime_Free( self );
+
+    return 0;
+}
+~
+
+.. StringBuffer.append
+
+~src/ix/StringBuffer.ix~
+public append( suffix: string& )
+{
+    @content = @content.concat( suffix );
+}
+~
+
+~src/c/StringBuffer.c~
+StringBuffer* StringBuffer_append( StringBuffer* self, const char* suffix )
+{
+    self->length += StringLength( suffix );
+    char* tmp = self->content;
+    self->content = StringCat( tmp, suffix );
+    free( tmp );
+
+    return self;
+}
+
+StringBuffer* StringBuffer_append_char( StringBuffer* self, char ch )
+{
+    char suffix[2] = { ch , '\0' };
+
+    return StringBuffer_append( self, suffix );
+}
+~
+
+~src/js/StringBuffer.js~
+StringBuffer.prototype.append
+=
+function( string )
+{
+    this.inner += string;
+}
+~
+
+.. StringBuffer.content
+
+~src/c/StringBuffer.c~
+const char* StringBuffer_content( StringBuffer* self )
+{
+    return self->content;
+}
+~
+
+.. StringBuffer.isEmpty
+
+~src/c/StringBuffer.c~
+bool StringBuffer_isEmpty( StringBuffer* self )
+{
+    return (0 == StringLength( self->content ));
+}
+~
+
+. Term
+
+.. Class Definitions
+
+~!include/libtokenizer/Term.h~
+#ifndef LIBTOKENIZER_TERM_H
+#define LIBTOKENIZER_TERM_H
+
+#define COLOR_NORMAL   "\033[00m"
+#define COLOR_BOLD     "\033[01m"
+#define COLOR_LIGHT    "\033[02m"
+#define COLOR_STRING   "\033[33m"
+#define COLOR_TYPE     "\033[36m"
+#define COLOR_MODIFIER "\033[94m"
+#define COLOR_VALUE    "\033[33m"
+#define COLOR_CHAR     "\033[33m"
+#define COLOR_COMMENT  "\033[32m"
+#define COLOR_UNKNOWN  "\033[41m"
+
+void Term_Colour( void* stream, const char* color );
+
+#endif
+~
+
+.. Term.Colour
+
+~!src/c/Term.c~
+#include <stdio.h>
+
+void Term_Colour( void* stream, const char* color )
+{
+    fprintf( stream, "%s", color );
+}
+~
+
+. Make
+
+~!Makefile.mak~
+CFLAGS=-O0
+BIN=bin
+INC=include
+LIB=lib
+OBJ=obj
+SRC=src
+
+all: dirs c js
+
+dirs:
+	mkdir -p $(BIN) $(OBJ) $(LIB)
+
+c: dirs
+	mkdir -p $(OBJ)/c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/Runtime.o         $(SRC)/c/Runtime.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/Term.o            $(SRC)/c/Term.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/Array.o           $(SRC)/c/Array.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/File.o            $(SRC)/c/File.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/Queue.o           $(SRC)/c/Queue.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/String.o          $(SRC)/c/String.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/StringBuffer.o    $(SRC)/c/StringBuffer.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/PushbackReader.o  $(SRC)/c/PushbackReader.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/TokenGroup.o      $(SRC)/c/TokenGroup.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/Token.o           $(SRC)/c/Token.c
+	cc -c $(CFLAGS) -I$(INC) -o $(OBJ)/c/Tokenizer.o       $(SRC)/c/Tokenizer.c
+
+js:
+	mkdir -p $(LIB)/js
+	cat $(SRC)/js/*.js > $(LIB)/js/libtokenizer.js
+
+tests:
+	cc $(CFLAGS) -I$(INC) -o $(BIN)/testArray          $(SRC)/c/testArray.c          $(OBJ)/c/*.o
+	cc $(CFLAGS) -I$(INC) -o $(BIN)/testFile           $(SRC)/c/testFile.c           $(OBJ)/c/*.o
+	cc $(CFLAGS) -I$(INC) -o $(BIN)/testQueue          $(SRC)/c/testQueue.c          $(OBJ)/c/*.o
+	cc $(CFLAGS) -I$(INC) -o $(BIN)/testString         $(SRC)/c/testString.c         $(OBJ)/c/*.o
+	cc $(CFLAGS) -I$(INC) -o $(BIN)/testStringBuffer   $(SRC)/c/testStringBuffer.c   $(OBJ)/c/*.o
+	cc $(CFLAGS) -I$(INC) -o $(BIN)/testPushbackReader $(SRC)/c/testPushbackReader.c $(OBJ)/c/*.o
+	cc $(CFLAGS) -I$(INC) -o $(BIN)/testToken          $(SRC)/c/testToken.c          $(OBJ)/c/*.o
+	cc $(CFLAGS) -I$(INC) -o $(BIN)/testTokenizer      $(SRC)/c/testTokenizer.c      $(OBJ)/c/*.o
+
+.PHONY: test
+test:
+	$(BIN)/testArray          > /dev/null
+	$(BIN)/testFile           > /dev/null
+	$(BIN)/testQueue          > /dev/null
+	$(BIN)/testString         > /dev/null
+	$(BIN)/testStringBuffer   > /dev/null
+	$(BIN)/testPushbackReader > /dev/null
+	$(BIN)/testToken          > /dev/null
+	$(BIN)/testTokenizer      > /dev/null
+~

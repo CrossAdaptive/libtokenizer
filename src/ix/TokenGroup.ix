@@ -1,0 +1,24 @@
+public class TokenGroup
+{
+    @character: char
+    @groupType: EnumTokenGroup
+}
+
+public new( character : char )
+{
+    @character = character
+    @groupType = TokenGroup.DetermineType( character );
+}
+
+public class TokenGroup
+{
+    @character: char
+    @groupType: EnumTokenGroup
+}
+
+public new( character : char )
+{
+    @character = character
+    @groupType = TokenGroup.DetermineType( character );
+}
+

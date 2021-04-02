@@ -1,0 +1,80 @@
+public class
+{
+    @t       : Tokenizer&;
+    @content : string*;
+    @length  : integer;
+    @group   : TokenGroup;
+    @type    : EnumTokenType;
+}
+
+public new( t: Tokenizer&, content: string&, aGroup: TokenGroup )
+{
+    @t       = t;
+    @content = content.clone();
+    @length  = content.length;
+    @group   = aGroup;
+    @type    = DetermineTokenType( aGroup, @content );
+}
+
+public getContent() : const string&
+{
+    return @content;
+}
+
+public getLength() : integer
+{
+    return @length;
+}
+
+public getTokenGroup : TokenGroup
+{
+    return @group;
+}
+
+public getTokenType : TokenType
+{
+    return @type;
+}
+
+private DetermineTokenType( group: TokenGroup, content: string& )
+{
+    var type = TokenType.UNKNOWN;
+
+    switch( group )
+    {
+    case WHITESPACE:
+        type = Token.DetermineWhitespaceType( content );
+        break;
+
+    case SYMBOLIC:
+        type = Token.DetermineSymbolicType( content );
+        break;
+
+    case ALPHANUMERIC:
+        type = Token.DetermineAlhanumericType( content );
+        break;
+
+    case VALUE:
+        type = TokenType.VALUE;
+        break;
+
+    case HEX_VALUE:
+        type = TokenType.HEX;
+        break;
+
+    case OPEN:
+        type = TokenType.UNKNOWN_TYPE;
+        break;
+
+    case CLOSE:
+        type = TokenType.UNKNOWN_TYPE;
+        break;
+
+    case UNKNOWN_GROUP:
+        type = TokenType.UNKNOWN_TYPE;
+        break;
+    }
+
+    return type;
+}
+

@@ -1,0 +1,10 @@
+public class
+{
+    @content: string*
+}
+
+public append( suffix: string& )
+{
+    @content = @content.concat( suffix );
+}
+

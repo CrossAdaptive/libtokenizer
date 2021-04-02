@@ -1,0 +1,119 @@
+public class
+{
+    @reader : PushbackReader*
+    @queue  : Queue<Token*>
+
+    public method new( reader: PushbackReader* ) : PushbackReader*
+    public method nextToken()                    : Token*
+    public method hasMoreTokens()                : boolean
+}
+
+public new( reader : PushbackReader )
+{
+    @reader = reader
+    @queue  = new Queue<Token>()
+
+    primeQueue();
+}
+
+public delete()
+{
+    while ( (var tmp: Token* = @queue.removeHead()) )
+    {
+        delete tmp
+    }
+}
+
+public nextToken()
+{
+    primeQueue();
+
+    if ( @queue.length > 0 )
+    {
+        return @queue.removeFirst()
+    }
+    else
+    {
+        return null;
+    }
+}
+
+public hasMoreTokens() : boolean
+{
+    return (@queue.getLength() > 0);
+}
+
+private primeQueue()
+{
+    if ( var token = next() )
+    {
+        @queue.addTail( token )
+    }
+}
+
+private next() : string
+{
+    var token: Token*
+
+    if ( var ch = @reader.read() )
+    {
+        var sb    = new StringBuffer()
+        var group = new TokenGroup( ch )
+
+        sb.append( ch )
+
+        while ( var ch2 = @reader.read() )
+        {
+            if ( EnumGroupType.ESCAPE == group.groupType )
+            {
+                sb  = sb.append( ch2 )
+                ch2 = @reader.read()
+                break;
+            }
+            else
+            if ( group.matches( ch2 ) )
+            {
+                if ( '\\' == ch2 )
+                {
+                    sb  = sb.append( ch2 )
+                    ch2 = @reader.read()
+                    sb  = sb.append( ch2 )
+                }
+                else
+                {
+                    sb = sb.append( ch2 )
+                }
+            }
+            else
+            if ( EnumGroupType.STRING == group.groupType )
+            {
+                sb = sb.append( ch2 )
+                c2 = @reader.read()
+                break
+            }
+            else
+            if ( EnumGroupType.CHAR == group.groupType )
+            {
+                sb = sb.append( ch2 )
+                c2 = @reader.read()
+                break
+            }
+            else
+            {
+                break
+            }
+        }
+
+        if ( c2 )
+        {
+            @reader.pushback()
+        }
+
+        if ( !sb.isEmpty()  )
+        {
+            token = new Token( this, sb.getContent(), group );
+        }
+    }
+    return token;
+}
+

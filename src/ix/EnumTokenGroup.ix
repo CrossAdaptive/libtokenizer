@@ -1,0 +1,15 @@
+public enum EnumTokenGroup
+{
+    UNKNOWN      : "UNKNOWN"
+    WHITESPACE   : "WHITESPACE"     #   
+    OPEN         : "OPEN"           # { ( [ <
+    CLOSE        : "CLOSE"          # } ) ] >
+    SYMBOLIC     : "SYMBOLIC"       # ~!@#$%^&*-
+    ESCAPE       : "ESCAPE"         # \\
+    ALPHANUMERIC : "ALPHANUMERIC"   # _ A-Z a-z 0-9
+    STRING       : "STRING"         # \" 
+    CHAR         : "CHAR"           # \' 
+    VALUE        : "VALUE"          # 9, 
+    HEX_VALUE    : "HEX_VALUE"      # 0x9999
+}
+
