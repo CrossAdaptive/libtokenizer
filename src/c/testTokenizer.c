@@ -23,8 +23,8 @@ int main( int argc, char** argv )
         Token_free( token );
     }
 
-    Tokenizer_free     ( t );
-    PushbackReader_free( p );
+    Tokenizer_free     ( &t );
+    PushbackReader_free( &p );
 
     if ( Runtime_Allocated() )
     {

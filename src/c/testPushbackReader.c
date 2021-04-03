@@ -51,7 +51,7 @@ int main( int argc, char** argv )
         }
         fprintf( stdout, "\n" );
     }
-    PushbackReader_free( r );
+    PushbackReader_free( &r );
 
     if ( Runtime_Allocated() )
     {

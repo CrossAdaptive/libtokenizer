@@ -9,10 +9,10 @@ typedef struct _PushbackReader
 
 } PushbackReader;
 
-PushbackReader* PushbackReader_new     ( const char*     filepath );
-PushbackReader* PushbackReader_free    ( PushbackReader* self     );
-int             PushbackReader_read    ( PushbackReader* self     );
-PushbackReader* PushbackReader_pushback( PushbackReader* self     );
+PushbackReader* PushbackReader_new     ( const char*      filepath );
+PushbackReader* PushbackReader_free    ( PushbackReader** self     );
+int             PushbackReader_read    ( PushbackReader*  self     );
+PushbackReader* PushbackReader_pushback( PushbackReader*  self     );
 
 #endif
 

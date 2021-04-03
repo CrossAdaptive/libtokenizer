@@ -27,16 +27,16 @@ PushbackReader* PushbackReader_new( const char* filepath )
     return self;
 }
 
-PushbackReader* PushbackReader_free( PushbackReader* self )
+PushbackReader* PushbackReader_free( PushbackReader** self )
 {
-    if ( self )
+    if ( *self )
     {
-        free( self->content ); self->content = 0;
-        self->length = 0;
+        free( (*self)->content ); (*self)->content = 0;
+        (*self)->length = 0;
 
-        Runtime_Free( self );
+        (*self) = Runtime_Free( (*self) );
     }
-    return 0;
+    return (*self);
 }
 
 int PushbackReader_read( PushbackReader* self )

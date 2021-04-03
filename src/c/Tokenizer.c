@@ -21,27 +21,27 @@ Tokenizer* Tokenizer_new( PushbackReader* reader )
     return self;
 }
 
-Tokenizer* Tokenizer_free( Tokenizer* self )
+Tokenizer* Tokenizer_free( Tokenizer** self )
 {
-    if ( self )
+    if ( *self )
     {
         if ( 1 )
         {
             Token* tmp;
 
-            while ( (tmp = Queue_removeHead( self->queue )) )
+            while ( (tmp = Queue_removeHead( (*self)->queue )) )
             {
                 Token_free( tmp );
             }
         }
 
-        self->reader = 0;
+        (*self)->reader = 0;
 
-        if ( self->queue ) self->queue = Queue_free( self->queue );
+        if ( (*self)->queue ) (*self)->queue = Queue_free( (*self)->queue );
 
-        Runtime_Free( self );
+        *self = Runtime_Free( (*self) );
     }
-    return 0;
+    return *self;
 }
 
 Token* Tokenizer_nextToken( Tokenizer* self )
