@@ -7,13 +7,13 @@
 static void   primeQueue( Tokenizer* self );
 static Token*       next( Tokenizer* self );
 
-Tokenizer* Tokenizer_new( PushbackReader* reader )
+Tokenizer* Tokenizer_new( PushbackReader** reader )
 {
     Tokenizer* self = Runtime_Calloc( 1, sizeof( Tokenizer ) );
 
     if ( self )
     {   
-        self->reader = reader;
+        self->reader = *reader; (*reader) = NULL;
         self->queue  = Queue_new();
 
         primeQueue( self );
@@ -35,7 +35,7 @@ Tokenizer* Tokenizer_free( Tokenizer** self )
             }
         }
 
-        (*self)->reader = 0;
+        (*self)->reader = PushbackReader_free( &(*self)->reader );
 
         if ( (*self)->queue ) (*self)->queue = Queue_free( (*self)->queue );
 

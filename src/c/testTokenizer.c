@@ -12,7 +12,7 @@ int main( int argc, char** argv )
     const char* filepath = "./test/Sample.txt";
 
     PushbackReader* p = PushbackReader_new( filepath );
-    Tokenizer*      t = Tokenizer_new( p );
+    Tokenizer*      t = Tokenizer_new( &p );
 
     while ( Tokenizer_hasMoreTokens( t ) )
     {
@@ -23,8 +23,7 @@ int main( int argc, char** argv )
         Token_free( token );
     }
 
-    Tokenizer_free     ( &t );
-    PushbackReader_free( &p );
+    Tokenizer_free( &t );
 
     if ( Runtime_Allocated() )
     {

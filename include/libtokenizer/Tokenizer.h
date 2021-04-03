@@ -14,10 +14,10 @@ typedef struct _Tokenizer
 
 } Tokenizer;
 
-Tokenizer* Tokenizer_new          ( PushbackReader* reader );
-Tokenizer* Tokenizer_free         ( Tokenizer**     self   );
-Token*     Tokenizer_nextToken    ( Tokenizer*      self   );
-bool       Tokenizer_hasMoreTokens( Tokenizer*      self   ); 
+Tokenizer* Tokenizer_new          ( PushbackReader** reader );
+Tokenizer* Tokenizer_free         ( Tokenizer**      self   );
+Token*     Tokenizer_nextToken    ( Tokenizer*       self   );
+bool       Tokenizer_hasMoreTokens( Tokenizer*       self   ); 
 
 #endif
 
